@@ -1,0 +1,36 @@
+# Khmer Dubbing Studio - Dependencies
+# Install with: pip install -r requirements.txt
+
+# UI Framework
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0
+
+# Video/Audio Processing
+ffmpeg-python>=0.2.0
+pydub>=0.25.1
+librosa>=0.10.1
+soundfile>=0.12.1
+
+# Speech-to-Text (Whisper - runs locally)
+openai-whisper>=20231117
+torch>=2.1.0
+torchaudio>=2.1.0
+
+# Translation (runs locally, offline)
+transformers>=4.35.0
+sentencepiece>=0.1.99
+sacremoses>=0.0.53
+
+# Text-to-Speech (Khmer voices)
+edge-tts>=6.1.9
+
+# Subtitle handling
+srt>=3.5.3
+webvtt-py>=0.4.6
+
+# Utilities
+numpy>=1.24.0
+requests>=2.31.0
+asyncio-compat>=0.1.0
+aiohttp>=3.9.0
+tqdm>=4.66.0

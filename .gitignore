@@ -1,0 +1,43 @@
+# Virtual environment
+venv/
+env/
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# AI model cache (large files, downloaded automatically)
+models/
+*.pt
+*.bin
+*.safetensors
+
+# Output videos and subtitles
+output/
+
+# Temp files
+*.tmp
+*.temp
+temp/
+
+# IDE / editor
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Build
+dist/
+build/
+*.egg-info/
