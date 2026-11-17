@@ -6,19 +6,60 @@ Supports:
   - English: en-US-AndrewNeural, en-US-AriaNeural, en-GB-RyanNeural,
              en-GB-SoniaNeural, en-AU-WilliamNeural, en-AU-NatashaNeural
 
-Parallel async generation — 5 segments at once for speed.
+Key improvement for sync accuracy:
+  - TTS rate is calculated per-segment based on how much the translated
+    text has grown compared to the original (char ratio)
+  - This pre-emptively speeds up the voice before audio_sync even runs
+  - audio_sync then fine-tunes with atempo to hit the exact slot duration
 """
 import asyncio
 import os
 import tempfile
-import time
 from pathlib import Path
-from typing import List, Callable, Optional
+from typing import List, Callable
 import edge_tts
 from config import VOICES_BY_TARGET, DEFAULT_VOICE
 
-DEFAULT_RATE   = "+0%"
+# Base speaking rate — neutral
+BASE_RATE      = "+0%"
+
+# Maximum pre-emptive speed-up via TTS rate setting
+# (audio_sync will do the precise fit on top of this)
+MAX_TTS_RATE   = "+30%"
+
+# Parallel TTS requests
 MAX_CONCURRENT = 5
+
+
+def _calc_rate(original_text: str, translated_text: str) -> str:
+    """
+    Calculate TTS speaking rate based on how much the translation
+    has grown compared to the original text.
+
+    If the translation is 50% longer than the original, speak 20% faster
+    so the sync engine has less work to do (better quality result).
+
+    Returns Edge TTS rate string e.g. "+0%", "+15%", "+30%"
+    """
+    if not original_text or not translated_text:
+        return BASE_RATE
+
+    orig_len  = max(len(original_text.strip()), 1)
+    trans_len = len(translated_text.strip())
+    ratio     = trans_len / orig_len  # > 1.0 means translation is longer
+
+    if ratio <= 1.1:
+        # Translation same length or shorter — normal speed
+        return BASE_RATE
+    elif ratio <= 1.4:
+        # 10–40% longer — speak 10% faster
+        return "+10%"
+    elif ratio <= 1.8:
+        # 40–80% longer — speak 20% faster
+        return "+20%"
+    else:
+        # Very long translation — speak at max pre-emptive speed
+        return MAX_TTS_RATE
 
 
 class TTSEngine:
@@ -86,18 +127,17 @@ class TTSEngine:
     ) -> list:
         """
         Generate TTS audio for all segments in parallel.
-        Uses segment.khmer_text as the text source (holds translated text
-        in whatever target language was selected).
+        Rate is auto-calculated per segment based on translation length ratio.
         """
-        callback  = progress_callback or self.progress_callback
+        callback   = progress_callback or self.progress_callback
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
 
         if callback:
             callback(f"Generating voices for {len(segments)} segments...")
 
-        tasks        = []
-        task_to_seg  = {}
+        tasks       = []
+        task_to_seg = {}
 
         for i, seg in enumerate(segments):
             if not seg.khmer_text or not seg.khmer_text.strip():
@@ -108,9 +148,16 @@ class TTSEngine:
             if speaker_voices and seg.speaker in speaker_voices:
                 voice = speaker_voices[seg.speaker]
 
+            # Calculate smart rate based on translation growth
+            rate = _calc_rate(seg.text, seg.khmer_text)
+
             path = str(output_dir / f"segment_{i:04d}.mp3")
-            tasks.append({"text": seg.khmer_text, "path": path,
-                          "voice": voice, "rate": DEFAULT_RATE})
+            tasks.append({
+                "text":  seg.khmer_text,
+                "path":  path,
+                "voice": voice,
+                "rate":  rate,
+            })
             task_to_seg[len(tasks) - 1] = i
 
         if not tasks:
@@ -142,16 +189,16 @@ class TTSEngine:
         return segments
 
     def generate(self, text: str, output_path: str = None, rate: str = None) -> str:
+        """Generate a single TTS clip."""
         if output_path is None:
             fd, output_path = tempfile.mkstemp(suffix=".mp3")
             os.close(fd)
         asyncio.run(self._generate_one(
-            text, output_path, self.voice, rate or DEFAULT_RATE,
+            text, output_path, self.voice, rate or BASE_RATE,
             asyncio.Semaphore(1)
         ))
         return output_path
 
     @staticmethod
     def get_voices_for_language(lang_code: str) -> dict:
-        """Return the voice dict for a given target language code."""
         return VOICES_BY_TARGET.get(lang_code, VOICES_BY_TARGET["km"])
