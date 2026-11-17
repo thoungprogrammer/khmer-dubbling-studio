@@ -48,11 +48,31 @@ SOURCE_LANGUAGES = {
     "Indonesian":       ("id",    "Helsinki-NLP/opus-mt-id-en"),
 }
 
-# Edge TTS Khmer voices
-KHMER_VOICES = {
-    "Male - Piseth": "km-KH-PisethNeural",
-    "Female - Sreymom": "km-KH-SreymomNeural",
+# Supported target (output) languages
+TARGET_LANGUAGES = {
+    "Khmer":   "km",
+    "English": "en",
 }
+DEFAULT_TARGET_LANGUAGE = "km"
+
+# Edge TTS voices per target language
+VOICES_BY_TARGET = {
+    "km": {
+        "Male - Piseth":   "km-KH-PisethNeural",
+        "Female - Sreymom": "km-KH-SreymomNeural",
+    },
+    "en": {
+        "Male - Andrew (US)":    "en-US-AndrewNeural",
+        "Female - Aria (US)":    "en-US-AriaNeural",
+        "Male - Ryan (UK)":      "en-GB-RyanNeural",
+        "Female - Sonia (UK)":   "en-GB-SoniaNeural",
+        "Male - William (AU)":   "en-AU-WilliamNeural",
+        "Female - Natasha (AU)": "en-AU-NatashaNeural",
+    },
+}
+
+# Keep KHMER_VOICES for backward compatibility
+KHMER_VOICES = VOICES_BY_TARGET["km"]
 DEFAULT_VOICE = "km-KH-PisethNeural"
 
 # Audio settings

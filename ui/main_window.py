@@ -499,6 +499,7 @@ class MainWindow(QMainWindow):
             voice=settings["voice"],
             whisper_model=settings["whisper_model"],
             source_language=settings["source_language"],
+            target_language=settings["target_language"],
             pivot_model=settings["pivot_model"],
             bgm_volume=settings["bgm_volume"],
             dubbed_volume=settings["dubbed_volume"],
@@ -521,7 +522,8 @@ class MainWindow(QMainWindow):
 
         self._log_separator()
         self._log(f"Video   : {Path(self.video_path).name}")
-        self._log(f"Language: {self.voice_panel.lang_combo.currentText()}")
+        self._log(f"Source  : {self.voice_panel.lang_combo.currentText()}")
+        self._log(f"Target  : {self.voice_panel.target_combo.currentText()}")
         self._log(f"Voice   : {settings['voice']}")
         self._log(f"Model   : {settings['whisper_model']}")
         self._log_separator()

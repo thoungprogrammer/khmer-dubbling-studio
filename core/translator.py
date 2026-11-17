@@ -1,26 +1,27 @@
 """
-Translator - Multi-language → Khmer
+Translator - Multi-language → Khmer OR English
+
+Target language is now selectable:
+  - "km" → translate to Khmer (default)
+  - "en" → translate to English
 
 Translation backends (tried in order):
-1. MyMemoryTranslator  — free, no API key, no IP rate limit, good Khmer quality
-2. GoogleTranslator    — free, better quality, but has IP rate limits from testing
-3. CLAck/en-km offline — cached local model, fallback when both online fail
-
-MyMemory supports 50 languages including Khmer natively.
-No pivot translation needed — single call handles any source language.
+1. MyMemoryTranslator  — free, no API key, no IP rate limit
+2. GoogleTranslator    — free, better quality, IP rate limits if abused
+3. CLAck/en-km offline — cached local model, Khmer only fallback
 """
 import time
 import re
 from typing import List, Callable
 
-# MyMemory language codes (source: "en-US", target: "km-KH")
+# MyMemory language codes
 MYMEMORY_LANG = {
     "en":   "en-US",  "zh":   "zh-CN",  "fr":   "fr-FR",
     "es":   "es-ES",  "de":   "de-DE",  "ja":   "ja-JP",
     "ko":   "ko-KR",  "vi":   "vi-VN",  "th":   "th-TH",
     "ar":   "ar-SA",  "ru":   "ru-RU",  "pt":   "pt-PT",
     "it":   "it-IT",  "hi":   "hi-IN",  "id":   "id-ID",
-    "auto": "en-US",
+    "km":   "km-KH",  "auto": "en-US",
 }
 
 # Google Translate language codes
@@ -28,18 +29,17 @@ GT_LANG_MAP = {
     "en": "en", "zh": "zh-CN", "fr": "fr", "es": "es",
     "de": "de", "ja": "ja",   "ko": "ko", "vi": "vi",
     "th": "th", "ar": "ar",   "ru": "ru", "pt": "pt",
-    "it": "it", "hi": "hi",   "id": "id", "auto": "auto",
+    "it": "it", "hi": "hi",   "id": "id",
+    "km": "km", "auto": "auto",
 }
 
-# Offline fallback
+# Offline fallback (Khmer only)
 OFFLINE_MODEL           = "CLAck/en-km"
 OFFLINE_TOKENIZER_MODEL = "Helsinki-NLP/opus-mt-en-zh"
 OFFLINE_MAX_LENGTH      = 256
 
-# Batch size — MyMemory has a 500 char limit per request,
-# so we keep batches at 10 short segments
-BATCH_SIZE    = 10
-BATCH_DELAY   = 0.3   # seconds between batch calls
+BATCH_SIZE  = 10
+BATCH_DELAY = 0.3
 
 
 def _clean(text: str) -> str:
@@ -53,40 +53,40 @@ def _clean(text: str) -> str:
 
 
 class Translator:
-    """Multi-language → Khmer with online/offline fallback chain."""
+    """Multi-language → Khmer or English translator."""
 
     def __init__(self, progress_callback: Callable = None):
         self.progress_callback = progress_callback
-        self._backend          = "mymemory"  # "mymemory" | "google" | "offline"
-        # Offline model (lazy-loaded)
+        self._backend           = "mymemory"
+        # Offline model (lazy-loaded, Khmer only)
         self._offline_model = None
         self._tok_in        = None
         self._tok_out       = None
 
-    # ── MyMemory backend ──────────────────────────────────────────────────
+    # ── MyMemory ─────────────────────────────────────────────────────────
 
-    def _mymemory_batch(self, texts: List[str], src_lang: str) -> List[str]:
+    def _mymemory_batch(self, texts: List[str], src_lang: str, tgt_lang: str) -> List[str]:
         from deep_translator import MyMemoryTranslator
         mm_src = MYMEMORY_LANG.get(src_lang, "en-US")
-        tr     = MyMemoryTranslator(source=mm_src, target="km-KH")
+        mm_tgt = MYMEMORY_LANG.get(tgt_lang, "km-KH")
+        tr     = MyMemoryTranslator(source=mm_src, target=mm_tgt)
         results = []
         for text in texts:
             if not text.strip():
                 results.append("")
                 continue
-            # MyMemory 500-char limit — truncate gracefully
-            chunk = text[:490]
-            r = tr.translate(chunk)
+            r = tr.translate(text[:490])
             results.append(_clean(r or ""))
-            time.sleep(0.15)   # ~6 req/s, well within free limit
+            time.sleep(0.15)
         return results
 
-    # ── Google Translate backend ──────────────────────────────────────────
+    # ── Google Translate ──────────────────────────────────────────────────
 
-    def _google_batch(self, texts: List[str], src_lang: str) -> List[str]:
+    def _google_batch(self, texts: List[str], src_lang: str, tgt_lang: str) -> List[str]:
         from deep_translator import GoogleTranslator
         gt_src = GT_LANG_MAP.get(src_lang, "auto")
-        tr     = GoogleTranslator(source=gt_src, target="km")
+        gt_tgt = GT_LANG_MAP.get(tgt_lang, "km")
+        tr     = GoogleTranslator(source=gt_src, target=gt_tgt)
         results = []
         for text in texts:
             if not text.strip():
@@ -97,7 +97,7 @@ class Translator:
             time.sleep(0.25)
         return results
 
-    # ── Offline CLAck/en-km fallback ─────────────────────────────────────
+    # ── Offline CLAck/en-km (Khmer only) ─────────────────────────────────
 
     def _load_offline(self):
         if self._offline_model:
@@ -113,6 +113,7 @@ class Translator:
         self._offline_model.eval()
 
     def _offline_batch(self, texts: List[str]) -> List[str]:
+        """Offline fallback — English → Khmer only."""
         import torch
         self._load_offline()
         prefixed = [f"<2khm> {t.strip()}" for t in texts]
@@ -128,36 +129,41 @@ class Translator:
             )
         return [_clean(self._tok_out.decode(t, skip_special_tokens=True)) for t in out]
 
-    # ── Routing with fallback chain ───────────────────────────────────────
+    # ── Routing ───────────────────────────────────────────────────────────
 
-    def _translate_chunk(self, texts: List[str], src_lang: str) -> List[str]:
+    def _translate_chunk(self, texts: List[str], src_lang: str, tgt_lang: str) -> List[str]:
         if self._backend == "mymemory":
             try:
-                return self._mymemory_batch(texts, src_lang)
+                return self._mymemory_batch(texts, src_lang, tgt_lang)
             except Exception as e:
                 print(f"[Translator] MyMemory failed ({e}), trying Google.")
                 self._backend = "google"
 
         if self._backend == "google":
             try:
-                return self._google_batch(texts, src_lang)
+                return self._google_batch(texts, src_lang, tgt_lang)
             except Exception as e:
                 print(f"[Translator] Google failed ({e}), using offline model.")
                 self._backend = "offline"
 
+        # Offline only supports EN→KM
+        if tgt_lang != "km":
+            print("[Translator] Offline fallback only supports Khmer target. Returning original text.")
+            return texts
         return self._offline_batch(texts)
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def translate(self, text: str, src_lang: str = "en") -> str:
+    def translate(self, text: str, src_lang: str = "en", tgt_lang: str = "km") -> str:
         if not text or not text.strip():
             return ""
-        return self.translate_batch([text], src_lang=src_lang)[0]
+        return self.translate_batch([text], src_lang=src_lang, tgt_lang=tgt_lang)[0]
 
     def translate_batch(
         self,
         texts: List[str],
         src_lang: str = "en",
+        tgt_lang: str = "km",
         pivot_model: str = None,          # API compat — not used
         progress_callback: Callable = None,
         batch_size: int = BATCH_SIZE,
@@ -178,7 +184,7 @@ class Translator:
                 results.extend([""] * len(batch))
                 continue
 
-            translated = self._translate_chunk(non_empty, src_lang)
+            translated = self._translate_chunk(non_empty, src_lang, tgt_lang)
 
             batch_out = [""] * len(batch)
             for idx, orig_idx in enumerate(non_empty_idx):
@@ -193,15 +199,19 @@ class Translator:
         self,
         segments,
         src_lang: str = "en",
+        tgt_lang: str = "km",
         pivot_model: str = None,
         progress_callback: Callable = None,
     ):
-        """Translate TranscriptionSegment objects in-place (sets .khmer_text)."""
+        """
+        Translate TranscriptionSegment objects in-place.
+        Sets segment.khmer_text (used for both Khmer and English target output).
+        """
         texts = [seg.text for seg in segments]
         translations = self.translate_batch(
-            texts, src_lang=src_lang,
+            texts, src_lang=src_lang, tgt_lang=tgt_lang,
             progress_callback=progress_callback,
         )
-        for seg, kh in zip(segments, translations):
-            seg.khmer_text = kh
+        for seg, translated in zip(segments, translations):
+            seg.khmer_text = translated   # field reused for any target language
         return segments

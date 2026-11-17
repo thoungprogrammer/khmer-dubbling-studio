@@ -33,7 +33,8 @@ class PipelineConfig:
     voice: str = "km-KH-PisethNeural"
     whisper_model: str = "base"
     source_language: str = "auto"       # Whisper language code, or "auto"
-    pivot_model: Optional[str] = None   # HuggingFace model for source→EN pivot
+    target_language: str = "km"         # "km" = Khmer, "en" = English
+    pivot_model: Optional[str] = None   # kept for API compat
     bgm_volume: float = 0.1
     dubbed_volume: float = 1.0
     export_srt: bool = True
@@ -134,18 +135,28 @@ class DubbingPipeline:
         else:
             self._progress("Translating to Khmer...")
 
-        # Pass detected language to translator (MyMemory handles all languages natively)
+        # Pass detected language to translator
         detected_lang = getattr(self, '_detected_lang', None) or whisper_lang or "en"
+        tgt_lang = self.config.target_language
+
+        if tgt_lang == "en":
+            self._progress("Translating to English...")
+        else:
+            self._progress("Translating to Khmer...")
+
         translator = Translator(progress_callback=self._progress)
         translator.translate_segments(
             self.segments,
             src_lang=detected_lang,
+            tgt_lang=tgt_lang,
             progress_callback=self._progress,
         )
         self._check_cancel()
 
-        # ── Step 5: Generate Khmer TTS ───────────────────────────────────
-        self._progress("Generating Khmer voices...")
+        # ── Step 5: Generate TTS ─────────────────────────────────────────
+        tgt_lang = self.config.target_language
+        lang_label = "Khmer" if tgt_lang == "km" else "English"
+        self._progress(f"Generating {lang_label} voices...")
         tts_dir = str(temp / "tts_audio")
         tts_engine = TTSEngine(
             voice=self.config.voice,
@@ -186,16 +197,18 @@ class DubbingPipeline:
         # ── Step 8: Generate subtitles ───────────────────────────────────
         output_paths = {}
         video_stem = Path(video_path).stem
+        tgt_lang   = self.config.target_language
+        lang_suffix = "khmer" if tgt_lang == "km" else "english"
 
         if self.config.export_srt:
             self._progress("Generating SRT subtitles...")
-            srt_path = str(self.output_dir / f"{video_stem}_khmer.srt")
+            srt_path = str(self.output_dir / f"{video_stem}_{lang_suffix}.srt")
             generate_srt(self.segments, srt_path, use_khmer=True)
             output_paths["srt"] = srt_path
 
         if self.config.export_vtt:
             self._progress("Generating VTT subtitles...")
-            vtt_path = str(self.output_dir / f"{video_stem}_khmer.vtt")
+            vtt_path = str(self.output_dir / f"{video_stem}_{lang_suffix}.vtt")
             generate_vtt(self.segments, vtt_path, use_khmer=True)
             output_paths["vtt"] = vtt_path
 
@@ -203,7 +216,7 @@ class DubbingPipeline:
 
         # ── Step 9: Export final video ───────────────────────────────────
         self._progress("Exporting final dubbed video...")
-        final_video = str(self.output_dir / f"{video_stem}_khmer_dubbed.mp4")
+        final_video = str(self.output_dir / f"{video_stem}_{lang_suffix}_dubbed.mp4")
 
         exporter = VideoExporter(progress_callback=self._progress)
         exporter.export(
